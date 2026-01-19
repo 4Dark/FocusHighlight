@@ -2,6 +2,7 @@
 .vscodeignore
 .gitignore
 src/**
+!src/static/icon.png
 tsconfig.json
 package-lock.json
 vsc-extension-quickstart.md

@@ -1,0 +1,106 @@
+name: Foucus Highlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: |
+        npm ci
+        npm install -g @vscode/vsce
+
+    - name: Validate version and prepare for tag creation
+      id: validate_and_prepare
+      run: |
+        # Get current package version using Node.js (no external jq dependency)
+        PACKAGE_VERSION=$(node -p "require('./package.json').version")
+        echo "Current package version: $PACKAGE_VERSION"
+        echo "VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+        
+        # Get latest tag version
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "Latest tag version: $LATEST_VERSION"
+        else
+          LATEST_VERSION="0.0.0"
+          echo "No existing tags found, using default version: $LATEST_VERSION"
+        fi
+        echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+        
+        # Function to compare semantic versions
+        version_gt() {
+          test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
+        }
+        
+        # Check if version is incremented
+        if version_gt "$PACKAGE_VERSION" "$LATEST_VERSION"; then
+          echo "✓ Version $PACKAGE_VERSION is greater than $LATEST_VERSION - proceeding with validation"
+          VERSION_INCREMENTED="true"
+        else
+          echo "✗ Version $PACKAGE_VERSION is not greater than $LATEST_VERSION - skipping publish"
+          VERSION_INCREMENTED="false"
+          echo "version_incremented=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check if tag already exists
+        TAG_NAME="v${PACKAGE_VERSION}"
+        TAG_EXISTS=$(git ls-remote --tags origin "$TAG_NAME" | wc -l)
+        if [ "$TAG_EXISTS" -gt 0 ]; then
+          echo "✗ Tag $TAG_NAME already exists - skipping publish to avoid duplication"
+          echo "version_incremented=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "✓ Tag $TAG_NAME does not exist - ready to proceed after compilation"
+        echo "version_incremented=true" >> $GITHUB_OUTPUT
+        echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+        
+    - name: Compile extension
+      if: steps.validate_and_prepare.outputs.version_incremented == 'true'
+      run: npm run compile
+        
+    - name: Configure git user and create tag
+      if: steps.validate_and_prepare.outputs.version_incremented == 'true'
+      run: |
+        # Configure git user identity
+        git config --global user.email "noreply@github.com" # 官方占位邮箱，无任何意义
+        git config --global user.name "GitHub CI"           # 任意名称即可
+        
+        # Create and push git tag
+        echo "Creating tag: ${{ env.TAG_NAME }}"
+        git tag -a "${{ env.TAG_NAME }}" -m "Release version ${{ env.VERSION }}"
+        git push origin "${{ env.TAG_NAME }}"
+        echo "✓ Successfully created and pushed tag: ${{ env.TAG_NAME }}"
+        
+    - name: Publish to Visual Studio Marketplace
+      if: steps.validate_and_prepare.outputs.version_incremented == 'true'
+      env:
+        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      run: |
+        if [ -n "$VSCE_PAT" ]; then
+          vsce publish --pat "$VSCE_PAT"
+        else
+          echo "VSCE_PAT not set, skipping VS Marketplace publish"
+        fi
