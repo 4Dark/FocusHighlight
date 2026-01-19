@@ -113,9 +113,5 @@ jobs:
         # 使用 GitHub CLI 创建 release
         gh release create v${{ env.VERSION }} \
           --title "Release v${{ env.VERSION }}" \
-          --notes-file CHANGELOG.md \
           --generate-notes \
-          --target main \
-          --no-archive \
-          --draft false \
-          --prerelease false
+          --target main

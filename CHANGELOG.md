@@ -11,3 +11,9 @@ All notable changes to the "Focus Highlight" extension will be documented in thi
 - Custom color options
 - Gutter icon display option
 - Bottom border display option with configurable width and style
+
+## [1.0.1] - 2026-01-19
+- create github actions
+
+## [1.0.2] - 2026-01-19
+- rename repo
